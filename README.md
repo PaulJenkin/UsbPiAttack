@@ -27,7 +27,7 @@
 1. Image file for both PiZeroW and PiZero2W attached in the release.
 2. If you want to use you own Attack program , update the files pExFatUSB drive.
 
-**More about the Image**
+**More about the Image Files**
 1. Both Pi1 and Pi2 runs on Embeded custom Linux OS
 2. used custom OS so that the device gets ready at rapid phase
 
