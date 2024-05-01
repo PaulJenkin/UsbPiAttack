@@ -1,131 +1,95 @@
-
-import json
-import sys
 import re
+import sys
 
-import xmltodict
-from functools import reduce
-from operator import getitem
+def _create_shift_arr(step):
+    shift = ['\n']
+    ix = 0
+    space = ' '*step if type(step) is int else step
+    while ix < 100:
+        shift.append(shift[ix]+space)
+        ix = ix + 1
+    return shift;
+
+def Formatxml(text, step=4):
+    ar = re.sub('>\s{0,}<', "><", text)
+    ar = re.sub('<', "~::~<", ar)
+    ar = re.sub('\s*xmlns\:', "~::~xmlns:", ar)
+    ar = re.sub('\s*xmlns\=', "~::~xmlns=", ar)
+    ar = ar.split('~::~')
+    length = len(ar)
+    inComment = False
+    deep = 0
+    str = ''
+    ix = 0
+    shift = _create_shift_arr(step)
+    while ix < length:
+        if re.search('<!', ar[ix]):
+            str += shift[deep] + ar[ix]
+            inComment = True
+            if (re.search('-->', ar[ix]) or
+                re.search('\]>', ar[ix]) or
+                re.search('!DOCTYPE',ar[ix])
+                ):
+                inComment = False
+        elif re.search('-->',ar[ix]) or re.search('\]>',ar[ix]):
+            str += ar[ix]
+            inComment = False
+        elif ( re.search(r'^<\w',ar[ix-1]) and
+               re.search(r'^</\w', ar[ix]) and
+               (
+                 re.search('^<[\w:\-\.\,]+',ar[ix-1]).group(0) ==
+                 re.sub('/','', re.search(r'^</[\w:\-\.\,]+', ar[ix]).group(0))
+                )
+            ):
+            str += ar[ix]
+            if not inComment:
+                deep -= 1
+        elif (re.search('<\w',ar[ix]) and not re.search('<\/',ar[ix])
+                                      and not re.search('\/>', ar[ix])):
+            if not inComment:
+                str += shift[deep]+ar[ix]
+                deep += 1
+            else:
+                str += ar[ix]
+        elif re.search('<\w', ar[ix]) and re.search(r'</',ar[ix]):
+            str = str + shift[deep]+ar[ix] if not inComment else str + ar[ix]
+        elif re.search(r'</', ar[ix]):
+            if not inComment:
+                deep -= 1
+                str += shift[deep]+ar[ix]
+            else:
+                str += ar[ix]
+        elif re.search('\/>', ar[ix]):
+            str = str + shift[deep]+ar[ix] if not inComment else str + ar[ix]
+        elif re.search('<\?', ar[ix]):
+            str += shift[deep]+ar[ix]
+        elif re.search('xmlns\:', ar[ix]) or re.search('xmlns\=',ar[ix]):
+            str += shift[deep]+ar[ix];
+        else:
+            str += ar[ix];
+        ix += 1
+    return str[1:] if str[0] in ['\n','\r'] else str
+
 
 def xpathToRegX(strPath):
     while strPath.startswith('/'):
         strPath=strPath[1:]
-    xpath="<{}</{}>".format(strPath[:strPath.rfind('/')+1].replace('/','.*'),strPath[strPath.rfind('/')+1:])
-    return xpath
-
-def NodeArrayFromXpath(xpath):
-    while xpath.startswith('/'):
-        xpath=xpath[1:]
-    tags=[]
-    Ch=""
-    opSqBr=0
-    for apCh in xpath:
-        if apCh =='/' and opSqBr==0:
-            tags.append(Ch)
-            Ch=""
-            continue
-        if apCh=='[':
-            opSqBr+=1
-        if apCh==']':
-            opSqBr-=1
-        Ch+=apCh
-    tags.append(Ch)
-    return tags
-
-def solveCondition(JSN,ConditionPath):
-    pathStr=""
-    CurrentJSN=JSN
-    baseTag=ConditionPath[:ConditionPath.find('[')]
-    SubNodes=NodeArrayFromXpath((ConditionPath[ConditionPath.find('[')+1:ConditionPath.find('=')]))
-    SubNodes.insert(0,baseTag)
-    CompareItem=ConditionPath[ConditionPath.find('=')+1:-1].replace("'",'').replace('"','')
-    if isinstance(CurrentJSN,list):
-        for k,rec in enumerate(CurrentJSN):
-            unModrec=rec
-            for tag in SubNodes[:-1]:
-                if tag in rec:
-                    rec=rec[tag]
-            if SubNodes[-1] in rec.keys():
-                if rec[SubNodes[-1]]==CompareItem:
-                    return unModrec[baseTag],[k,baseTag]
-    else:
-
-        CurrentJSN=CurrentJSN[SubNodes[0]]
-        if isinstance(CurrentJSN,list):
-            for k,rec in enumerate(CurrentJSN):
-                unModrec=rec
-
-                for tag in SubNodes[1:-1]:
-                    if tag in rec:
-                        rec=rec[tag]
-                if SubNodes[-1] in rec.keys():
-                    if rec[SubNodes[-1]]==CompareItem:
-                        return unModrec,[baseTag,k]
-    if SubNodes[-1] in CurrentJSN.keys():
-        if CurrentJSN[SubNodes[-1]]==CompareItem:
-            return CurrentJSN,[baseTag]
-    return None
-
-def findValueByPath(JSN,PathArray):
-    pthStrArray=[]
-    CurrentJSN=JSN
-    for tag in PathArray[:-1]:
-        if tag.count('[')>0:
-            CurrentJSN,Strpt=solveCondition(CurrentJSN,tag)
-            pthStrArray+=Strpt
-        elif tag in CurrentJSN.keys():
-            pthStrArray.append(tag)
-            CurrentJSN=CurrentJSN[tag]
-
-    if isinstance(CurrentJSN,list):
-        CurrentJSN=CurrentJSN[0]
-        pthStrArray.append(0)
-    if PathArray[-1] in CurrentJSN.keys():
-        pthStrArray.append(PathArray[-1])
-        return pthStrArray,CurrentJSN[PathArray[-1]]
-    else:
-        print('$$$$$$$$$$$$$$ Issue $$$$$$$$$$$')
-        return None
-
-
-def jsonPutTxt(dataDict, mapList, val):
-    reduce(getitem, mapList[:-1], dataDict)[mapList[-1]] = val
-    return dataDict
-
-def jsonGetTxt(dataDict, mapList):
-    for itm in mapList:
-        dataDict=dataDict[itm]
-    return dataDict
-
-def xmlGetText(xmlText,xpath):
-    rtVal=None
-    try:
-        JSN = xmltodict.parse(xmlText)
-        NodeArray=NodeArrayFromXpath(xpath)
-        if xpath.count('[')>0:
-            NodeArray,rtVal=findValueByPath(JSN,NodeArray)
-        else:
-            rtVal=jsonGetTxt(dataDict, mapList)
-    except Exception as e:
-            print(str(e))
-            raise
-    return rtVal
-
-def xmlPutText(xmlText,xpathValueArray):
-    try:
-        JSN = xmltodict.parse(xmlText)
-        for xpathValue in xpathValueArray:
-            if xpathValue[0].count('[')>0:
-                NodeArray,rtVal=findValueByPath(JSN,NodeArrayFromXpath(xpathValue[0]))
-            else:
-                NodeArray=NodeArrayFromXpath(xpathValue[0])
-
-            JSN=jsonPutTxt(JSN, NodeArray, xpathValue[1])
-        xmlText=xmltodict.unparse(JSN, pretty=True)
-    except Exception as e:
-            print(str(e))
-            raise
-    return xmlText
+    xpath="<{}<{}>.*?</{}>".format(strPath[:strPath.rfind('/')+1].replace('/','.*?').replace('[','.*?').replace("='",'>').replace("'",'<').replace("'",'').replace("]",''),strPath[strPath.rfind('/')+1:],strPath[strPath.rfind('/')+1:])
+    RegXOpenStr=""
+    for ele in xpath.split('.*?'):
+        RegXOpenStr+=ele
+        if ele.endswith('<'):
+            RegXOpenStr+="/{}".format(ele[:ele.find('>')])
+        RegXOpenStr+='.*?'
+    RegXOpenStr=RegXOpenStr[:-3]
+    while strPath.count('[') and strPath.count(']'):
+        strPath=strPath.replace(strPath[strPath.find('['):strPath.find(']')+1],'')
+    splitTg=strPath.split('/')
+    splitTg.reverse()
+    xpathClose=""
+    for tg in splitTg[1:]:
+        xpathClose+="</{}>.*?".format(tg)
+    return RegXOpenStr,xpathClose[:-3]
 
 def xmlAddNone(xmlText,xpathValueArray):
     try:
@@ -137,3 +101,52 @@ def xmlAddNone(xmlText,xpathValueArray):
         return xmlText
     except:
         raise
+
+def xmlGetText(xmlText,xpath):
+    rtVal=None
+    try:
+        RegXOpenStr,RegXCloseStr=xpathToRegX(xpath)
+        RegXVerify="{}.*?{}".format(RegXOpenStr,RegXCloseStr)
+        ChkMtchLst=re.findall(RegXVerify,xmlText,re.S)
+        if len(ChkMtchLst):
+            DtMtchLst=re.findall(RegXOpenStr,xmlText,re.S)
+            TageName=xpath[xpath.rfind('/')+1:]
+            TagStart="<{}>".format(TageName)
+            TagEnd="</{}>".format(TageName)
+            FullTag=DtMtchLst[-1][DtMtchLst[-1].rfind(TagStart):]
+            FinalValue=FullTag.replace(TagStart,'').replace(TagEnd,'').strip()
+            if FinalValue.count('<') and FinalValue.count('>'):
+                print("Not an Element")
+            else:
+                rtVal=FinalValue
+    except Exception as e:
+            print(str(e))
+            raise
+    return rtVal
+
+def xmlPutText(xmlText,xpathValueArray):
+    try:
+        for xpathValue in xpathValueArray:
+            RegXOpenStr,RegXCloseStr=xpathToRegX(xpathValue[0])
+            RegXVerify="{}.*?{}".format(RegXOpenStr,RegXCloseStr)
+            ChkMtchLst=re.findall(RegXVerify,xmlText,re.S)
+            if len(ChkMtchLst):
+                DtMtchLst=re.findall(RegXOpenStr,xmlText,re.S)
+                TageName=xpathValue[0][xpathValue[0].rfind('/')+1:]
+                TagStart="<{}>".format(TageName)
+                TagEnd="</{}>".format(TageName)
+                FullTag=DtMtchLst[-1][DtMtchLst[-1].rfind(TagStart):]
+                FinalValue=FullTag.replace(TagStart,'').replace(TagEnd,'').strip()
+                if FinalValue.count('<') and FinalValue.count('>'):
+                    print("Not an Element")
+                else:
+                    dtWithoutTag=DtMtchLst[-1][:DtMtchLst[-1].rfind(TagStart)+1]
+                    NewDtToAdd="{}{}{}".format(TagStart,xpathValue[1],TagEnd)
+                    ModDt=dtWithoutTag+NewDtToAdd
+                    xmlText=xmlText.replace(DtMtchLst[-1],ModDt)
+            else:
+                raise
+    except Exception as e:
+            print(str(e))
+            raise
+    return xmlText
