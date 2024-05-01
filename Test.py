@@ -10,11 +10,12 @@ def _create_shift_arr(step):
         ix = ix + 1
     return shift;
 
-def Formatxml(text, step=4):
-    ar = re.sub('>\s{0,}<', "><", text)
+def xmlPrettyPrint(text, step=8):
+    #return text
+    ar = re.sub(r'>\s{0,}<', "><", text)
     ar = re.sub('<', "~::~<", ar)
-    ar = re.sub('\s*xmlns\:', "~::~xmlns:", ar)
-    ar = re.sub('\s*xmlns\=', "~::~xmlns=", ar)
+    #ar = re.sub('\s*xmlns\:', "~::~xmlns:", ar)
+    #ar = re.sub('\s*xmlns\=', "~::~xmlns=", ar)
     ar = ar.split('~::~')
     length = len(ar)
     inComment = False
@@ -27,31 +28,31 @@ def Formatxml(text, step=4):
             str += shift[deep] + ar[ix]
             inComment = True
             if (re.search('-->', ar[ix]) or
-                re.search('\]>', ar[ix]) or
+                re.search(r'\]>', ar[ix]) or
                 re.search('!DOCTYPE',ar[ix])
                 ):
                 inComment = False
-        elif re.search('-->',ar[ix]) or re.search('\]>',ar[ix]):
+        elif re.search('-->',ar[ix]) or re.search(r'\]>',ar[ix]):
             str += ar[ix]
             inComment = False
         elif ( re.search(r'^<\w',ar[ix-1]) and
                re.search(r'^</\w', ar[ix]) and
                (
-                 re.search('^<[\w:\-\.\,]+',ar[ix-1]).group(0) ==
+                 re.search(r'^<[\w:\-\.\,]+',ar[ix-1]).group(0) ==
                  re.sub('/','', re.search(r'^</[\w:\-\.\,]+', ar[ix]).group(0))
                 )
             ):
             str += ar[ix]
             if not inComment:
                 deep -= 1
-        elif (re.search('<\w',ar[ix]) and not re.search('<\/',ar[ix])
-                                      and not re.search('\/>', ar[ix])):
+        elif (re.search(r'<\w',ar[ix]) and not re.search(r'<\/',ar[ix])
+                                      and not re.search(r'\/>', ar[ix])):
             if not inComment:
                 str += shift[deep]+ar[ix]
                 deep += 1
             else:
                 str += ar[ix]
-        elif re.search('<\w', ar[ix]) and re.search(r'</',ar[ix]):
+        elif re.search(r'<\w', ar[ix]) and re.search(r'</',ar[ix]):
             str = str + shift[deep]+ar[ix] if not inComment else str + ar[ix]
         elif re.search(r'</', ar[ix]):
             if not inComment:
@@ -59,12 +60,12 @@ def Formatxml(text, step=4):
                 str += shift[deep]+ar[ix]
             else:
                 str += ar[ix]
-        elif re.search('\/>', ar[ix]):
+        elif re.search(r'\/>', ar[ix]):
             str = str + shift[deep]+ar[ix] if not inComment else str + ar[ix]
-        elif re.search('<\?', ar[ix]):
+        elif re.search(r'<\?', ar[ix]):
             str += shift[deep]+ar[ix]
-        elif re.search('xmlns\:', ar[ix]) or re.search('xmlns\=',ar[ix]):
-            str += shift[deep]+ar[ix];
+        #elif re.search('xmlns\:', ar[ix]) or re.search('xmlns\=',ar[ix]):
+        #    str += shift[deep]+ar[ix];
         else:
             str += ar[ix];
         ix += 1
@@ -90,17 +91,6 @@ def xpathToRegX(strPath):
     for tg in splitTg[1:]:
         xpathClose+="</{}>.*?".format(tg)
     return RegXOpenStr,xpathClose[:-3]
-
-def xmlAddNone(xmlText,xpathValueArray):
-    try:
-        for xpath,AddDt in xpathValueArray:
-            regXpath=xpathToRegX(xpath)
-            mtList=re.findall(regXpath,xmlText,re.S)
-            if len(mtList):
-                xmlText=xmlText.replace(mtList[0],"{}\n{}".format(mtList[0],AddDt))
-        return xmlText
-    except:
-        raise
 
 def xmlGetText(xmlText,xpath):
     rtVal=None
@@ -140,7 +130,7 @@ def xmlPutText(xmlText,xpathValueArray):
                 if FinalValue.count('<') and FinalValue.count('>'):
                     print("Not an Element")
                 else:
-                    dtWithoutTag=DtMtchLst[-1][:DtMtchLst[-1].rfind(TagStart)+1]
+                    dtWithoutTag=DtMtchLst[-1][:DtMtchLst[-1].rfind(TagStart)]
                     NewDtToAdd="{}{}{}".format(TagStart,xpathValue[1],TagEnd)
                     ModDt=dtWithoutTag+NewDtToAdd
                     xmlText=xmlText.replace(DtMtchLst[-1],ModDt)
@@ -150,3 +140,22 @@ def xmlPutText(xmlText,xpathValueArray):
             print(str(e))
             raise
     return xmlText
+
+def xpathToRegXForInsert(strPath):
+    while strPath.startswith('/'):
+        strPath=strPath[1:]
+    xpath="<{}<{}>".format(strPath[:strPath.rfind('/')+1].replace('/','.*?').replace('[','.*?').replace("='",'>').replace("'",'<').replace("'",'').replace("]",''),strPath[strPath.rfind('/')+1:],strPath[strPath.rfind('/')+1:])
+    return xpath
+
+def xmlAddNode(xmlText,xpathValueArray):
+    try:
+        for xpath,AddDt in xpathValueArray:
+            regXpath=xpathToRegXForInsert(xpath)
+            mtList=re.findall(regXpath,xmlText,re.S)
+            if len(mtList):
+                LastTagName=regXpath[regXpath.rfind('<'):]
+                repXMLDt=mtList[0][:mtList[0].rfind(LastTagName)]
+                xmlText=xmlText.replace(repXMLDt,"{}{}".format(repXMLDt,AddDt))
+        return xmlText
+    except:
+        raise
